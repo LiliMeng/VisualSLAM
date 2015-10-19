@@ -42,11 +42,9 @@ public:
     };
 private:
     bool filter;
-    std::vector<Keyframe> map;
+    std::vector<Keyframe> cloudKeyframeMap;
     pcl::PointCloud<pcl::PointXYZRGB> cloud;
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr convertToXYZRGBPointCloud(unsigned char * rgbImage, unsigned short * depthData);
 };
 
 #endif /* KEYFRAMEMAP_H */
-
-};
