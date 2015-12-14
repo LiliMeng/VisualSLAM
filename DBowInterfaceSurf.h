@@ -1,4 +1,4 @@
-*
+/*
  * DBowInterfaceSurf.h
  *
  *  Created on: 13 Dec 2011
