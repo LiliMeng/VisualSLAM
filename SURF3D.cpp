@@ -99,7 +99,6 @@ public:
 
         detector.detect( img_1, keypoints_1 );
         detector.detect( img_2, keypoints_2 );
-        //imshow( "Good Matches", img_matches );
 
         //-- Step 2: Calculate descriptors (feature vectors)
         SurfDescriptorExtractor extractor;
@@ -109,139 +108,113 @@ public:
         extractor.compute(img_1, keypoints_1, descriptors_1 );
         extractor.compute(img_2, keypoints_2, descriptors_2 );
 
-        vector<int> ind;
 
-        Mat m(3,3,CV_32F);
+        FlannBasedMatcher matcher;
+        std::vector< DMatch > matchesRaw;
+
+        matcher.match( descriptors_1, descriptors_2, matchesRaw);
+
+        cout<<"matchesRaw.size()  "<<matchesRaw.size()<<endl;
+
+          // compute homography using RANSAC
+        cv::Mat mask;
+        int ransacThreshold=9;
+
+        vector<Point2d> imgpts1beforeRANSAC, imgpts2beforeRANSAC;
+
+        for( int i = 0; i < (int)matchesRaw.size(); i++ )
+        {
+            imgpts1beforeRANSAC.push_back(keypoints_1[matchesRaw[i].queryIdx].pt);
+            imgpts2beforeRANSAC.push_back(keypoints_2[matchesRaw[i].trainIdx].pt);
+        }
+
+        cv::Mat H12 = cv::findHomography(imgpts1beforeRANSAC, imgpts2beforeRANSAC, CV_RANSAC, ransacThreshold, mask);
+        cv::Mat rotationMatrix(3,3,cv::DataType<double>::type);
+        int numMatchesbeforeRANSAC=(int)matchesRaw.size();
+        cout<<"The number of matches before RANSAC"<<numMatchesbeforeRANSAC<<endl;
+
+        int numRANSACInlier=0;
+        for(int i=0; i<(int)matchesRaw.size(); i++)
+        {
+            if((int)mask.at<uchar>(i, 0) == 1)
+            {
+                numRANSACInlier+=1;
+            }
+        }
+
+        cout<<"The number of matches after RANSAC"<<numRANSACInlier<<endl;
+
+        double max_dist = 0; double min_dist = 100;
+
+        //-- Quick calculation of max and min distances between keypoints
+        for( int i = 0; i < descriptors_1.rows; i++ )
+        {
+            double dist = matchesRaw[i].distance;
+            if( dist < min_dist ) min_dist = dist;
+            if( dist > max_dist ) max_dist = dist;
+        }
+
+        printf("-- Max dist : %f \n", max_dist );
+        printf("-- Min dist : %f \n", min_dist );
+
+        //-- Draw only "good" matches (i.e. whose distance is less than 2*min_dist,
+        //-- or a small arbitary value ( 0.02 ) in the event that min_dist is very
+        //-- small)
+        //-- PS.- radiusMatch can also be used here.
+
 
         vector<float> descriptors1(descriptors_1.rows*descriptors_1.cols);
 
         vector<float> descriptors2(descriptors_2.rows*descriptors_2.cols);
 
-        compare_descriptors(descriptors1, descriptors2, ind);
-
-        std::vector<std::vector<float> > matches1, matches2;
 
         Surf3DImage * one=calculate3dPointsSURF(depth_1, descriptors1, keypoints_1);
         Surf3DImage * two=calculate3dPointsSURF(depth_2, descriptors2, keypoints_2);
 
-        int inn1, inn2, is1, is2;
+        cout<<"descriptors1.size() "<<descriptors1.size()<<endl;
+        cout<<"descriptors2.size() "<<descriptors2.size()<<endl;
 
-            float tol = 0.5;
+        std::vector< DMatch > matches;
 
-            float mindist2, dist2;
+        for( int i = 0; i < descriptors_1.rows; i++)
+        {
+          if( matchesRaw[i].distance <= max(2*min_dist, 0.02)&& (int)mask.at<uchar>(i, 0) == 1)  //consider RANSAC
+            { matches.push_back(matchesRaw[i]); }
+        }
 
-            vector<int> j1, j2, i1, i2;
-
-            for(int is = 0; is < (int) ind.size(); is++)
-            {
-                if(ind[is] > 0)
-                {
-                    inn1 = -1;
-                    is1 = -1;
-                    mindist2 = 1;
-
-                    int tmp1=(int)one->pointCorrespondences.size();
-                    cout<<"(int)one->PointCorrespondence.size() "<<(int)one->pointCorrespondences.size()<<endl;
-
-                    cout<<"one->keyPoints.size() "<<(int)one->keyPoints.size()<<endl;
-
-                     int tmp2=(int)one->keyPoints.size();
-                    cout<<"one->keyPoints.at(66).pt.x "<<one->keyPoints.at(tmp2-1).pt.x<<endl;
-                    cout<<"one->keyPoints.at(66).pt.y "<<one->keyPoints.at(tmp2-1).pt.y<<endl;
-
-                    cout<<"one->pointCorrespondences.at(244466).coordIm.x "<<one->pointCorrespondences.at(tmp1-1).coordIm.x<<endl;
-                    cout<<"one->pointCorrespondences.at(244466).coordIm.y "<<one->pointCorrespondences.at(tmp1-1).coordIm.y<<endl;
-
-                    for(int ipc = 0; ipc < (int) one->pointCorrespondences.size(); ipc++)
-                    {
-                        if(one->pointCorrespondences.at(ipc).coordIm.y > (one->keyPoints.at(is).pt.y - tol) &&
-                           one->pointCorrespondences.at(ipc).coordIm.y < (one->keyPoints.at(is).pt.y + tol) &&
-                           one->pointCorrespondences.at(ipc).coordIm.x > (one->keyPoints.at(is).pt.x - tol) &&
-                           one->pointCorrespondences.at(ipc).coordIm.x < (one->keyPoints.at(is).pt.x + tol))
-                        {
-                            dist2 = pow(one->pointCorrespondences.at(ipc).coordIm.x - one->keyPoints.at(is).pt.x, 2) +
-                                    pow(one->pointCorrespondences.at(ipc).coordIm.y - one->keyPoints.at(is).pt.y, 2);
-
-                            if(dist2 < mindist2)
-                            {
-                                mindist2 = dist2;
-                                inn1 = ipc;
-                                is1 = is;
-                            }
-                        }
-                    }
-
-                    inn2 = -1;
-                    is2 = -1;
-                    mindist2 = 1;
-
-                     int tmp11=(int)two->pointCorrespondences.size();
-                    cout<<"(int)two->PointCorrespondence.size() "<<(int)two->pointCorrespondences.size()<<endl;
-
-                    cout<<"two->keyPoints.size() "<<(int)two->keyPoints.size()<<endl;
-
-                    cout<<"two->keyPoints.at(is).pt.x "<<two->keyPoints.at(is).pt.x<<endl;
-                    cout<<"two->keyPoints.at(ind[is]).pt.y "<<two->keyPoints.at(is).pt.y<<endl;
-
-                    cout<<"two->pointCorrespondences.at(244466).coordIm.x "<<two->pointCorrespondences.at(tmp11-1).coordIm.x<<endl;
-                    cout<<"two->pointCorrespondences.at(244466).coordIm.y "<<two->pointCorrespondences.at(tmp11-1).coordIm.y<<endl;
+        cout<<"good_matches.size() after RANSAC "<<matches.size()<<endl;
+        vector<vector<float> > matches1(matches.size()), matches2(matches.size());  //the matched keypoints in image1 and image2 separately.
 
 
-                    for(int ipc = 0; ipc < (int) two->pointCorrespondences.size(); ipc++)
-                    {
-                        if(two->pointCorrespondences.at(ipc).coordIm.y > (two->keyPoints.at(ind[is]).pt.y - tol) &&
-                           two->pointCorrespondences.at(ipc).coordIm.y < (two->keyPoints.at(ind[is]).pt.y + tol) &&
-                           two->pointCorrespondences.at(ipc).coordIm.x > (two->keyPoints.at(ind[is]).pt.x - tol) &&
-                           two->pointCorrespondences.at(ipc).coordIm.x < (two->keyPoints.at(ind[is]).pt.x + tol))
-                        {
-                            dist2 = pow(two->pointCorrespondences.at(ipc).coordIm.x - two->keyPoints.at(ind[is]).pt.x, 2) +
-                                    pow(two->pointCorrespondences.at(ipc).coordIm.y - two->keyPoints.at(ind[is]).pt.y, 2);
-                            if(dist2 < mindist2)
-                            {
-                                mindist2 = dist2;
-                                inn2 = ipc;
-                                is2 = ind[is];
-                            }
-                        }
-                    }
-
-                    if(inn1 >= 0 and inn2 >= 0)
-                    {
-                        j1.push_back(inn1);
-                        j2.push_back(inn2);
-                        i1.push_back(is1);
-                        i2.push_back(is2);
-                    }
-
-                    cout<<"j1.size() "<<j1.size()<<endl;
-                    cout<<"j2.size() "<<j2.size()<<endl;
-                }
-            }
-
-            matches1.resize(j1.size());
-            matches2.resize(j2.size());
-
-            cout<<"matches1.size() "<<matches1.size()<<endl;
-            cout<<"matches2.size() "<<matches2.size()<<endl;
-
-            for(unsigned int i = 0; i < j1.size(); i++)
-            {
-                matches1[i].resize(5);
-                matches1[i][0] = one->pointCorrespondences.at(j1[i]).point3d.x;
-                matches1[i][1] = one->pointCorrespondences.at(j1[i]).point3d.y;
-                matches1[i][2] = one->pointCorrespondences.at(j1[i]).point3d.z;
-                matches1[i][3] = one->keyPoints.at(i1[i]).pt.x;
-                matches1[i][4] = one->keyPoints.at(i1[i]).pt.y;
-                matches2[i].resize(5);
-                matches2[i][0] = two->pointCorrespondences.at(j2[i]).point3d.x;
-                matches2[i][1] = two->pointCorrespondences.at(j2[i]).point3d.y;
-                matches2[i][2] = two->pointCorrespondences.at(j2[i]).point3d.z;
-                matches2[i][3] = two->keyPoints.at(i2[i]).pt.x;
-                matches2[i][4] = two->keyPoints.at(i2[i]).pt.y;
-            }
+        for(unsigned int i = 0; i < matches.size(); i++)
+        {
+            matches1[i].resize(5);
+            matches1[i][0] = one->pointCorrespondences.at(matches[i].queryIdx).point3d.x;
+            cout<<"matches1[i][0] "<<matches1[i][0]<<endl;
+            matches1[i][1] = one->pointCorrespondences.at(matches[i].queryIdx).point3d.y;
+            cout<<"matches1[i][1] "<<matches1[i][1]<<endl;
+            matches1[i][2] = one->pointCorrespondences.at(matches[i].queryIdx).point3d.z;
+            cout<<"matches1[i][2] "<<matches1[i][2]<<endl;
+            matches1[i][3] = one->keyPoints.at(matches[i].queryIdx).pt.x;
+            cout<<"matches1[i][3] "<<matches1[i][3]<<endl;
+            matches1[i][4] = one->keyPoints.at(matches[i].queryIdx).pt.y;
+            cout<<"matches1[i][4] "<<matches1[i][4]<<endl;
+            matches2[i].resize(5);
+            matches2[i][0] = two->pointCorrespondences.at(matches[i].trainIdx).point3d.x;
+            cout<<"matches2[i][0] "<<matches2[i][0]<<endl;
+            matches2[i][1] = two->pointCorrespondences.at(matches[i].trainIdx).point3d.y;
+            cout<<"matches2[i][1] "<<matches2[i][1]<<endl;
+            matches2[i][2] = two->pointCorrespondences.at(matches[i].trainIdx).point3d.z;
+            cout<<"matches2[i][2] "<<matches2[i][2]<<endl;
+            matches2[i][3] = two->keyPoints.at(matches[i].trainIdx).pt.x;
+            cout<<"matches2[i][3] "<<matches2[i][3]<<endl;
+            matches2[i][4] = two->keyPoints.at(matches[i].trainIdx).pt.y;
+            cout<<"matches2[i][4] "<<matches2[i][4]<<endl;
+        }
 
         cv::Mat * im1=&img_1;
         cv::Mat * im2=&img_2;
+
         cv::namedWindow("Loop Closure", CV_WINDOW_AUTOSIZE);
 
         cv::Mat * full_image;
@@ -291,6 +264,10 @@ public:
 
         void flannFindPairs(vector<float> & des1, vector<float> & des2, vector<int> & ptpairs)
         {
+
+            cout<<"des1.size() "<<des1.size()<<endl;
+            cout<<"des2.size() "<<des2.size()<<endl;
+
             ptpairs.clear();
 
             if(des1.size() == 0 || des2.size() == 0)
@@ -303,6 +280,8 @@ public:
 
             int k = 0;
             k = min((int)des1.size(), (int)des2.size());
+
+            cout<<"k "<<k<<endl;
 
             for(int i = 0; i < k; i++ )
             {
@@ -347,6 +326,8 @@ public:
                     ptpairs.push_back(i);
                 }
             }
+
+            cout<<"ptpairs.size() in flannFindPairs "<<ptpairs.size()<<endl;
         }
 
 
